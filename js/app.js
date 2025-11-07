@@ -323,8 +323,11 @@ async function editarPropietario(documentId, cedula) {
         modoEdicion = true;
         documentoIdActual = documentId;
         document.getElementById('form-titulo').textContent = 'Editar Propietario';
+        document.getElementById('btn-guardar').textContent = 'Actualizar Propietario';
+        document.getElementById('btn-cancelar').textContent = 'Cancelar Edición';
         document.getElementById('btn-cancelar').classList.remove('oculto');
-        document.getElementById('cedula').disabled = true; // No permitir cambiar cédula
+        document.getElementById('cedula').readOnly = true; // No permitir cambiar cédula
+        document.getElementById('apartamento').readOnly = true; // No permitir cambiar apartamento
 
         // Scroll al formulario
         document.querySelector('.form-section').scrollIntoView({ behavior: 'smooth' });
@@ -339,10 +342,23 @@ async function editarPropietario(documentId, cedula) {
 function cancelarEdicion() {
     modoEdicion = false;
     documentoIdActual = null;
-    limpiarFormulario();
-    document.getElementById('form-titulo').textContent = 'Nuevo Propietario';
+    
+    // Limpiar formulario (resetear todos los campos)
+    document.getElementById('form-propietario').reset();
+    
+    // Restaurar título al modo inicial
+    document.getElementById('form-titulo').textContent = 'Añadir Nuevo Propietario';
+    
+    // Restaurar textos de botones
+    document.getElementById('btn-guardar').textContent = 'Guardar';
+    document.getElementById('btn-cancelar').textContent = 'Cancelar';
+    
+    // Ocultar botón cancelar
     document.getElementById('btn-cancelar').classList.add('oculto');
-    document.getElementById('cedula').disabled = false;
+    
+    // Volver a habilitar todos los campos
+    document.getElementById('cedula').readOnly = false;
+    document.getElementById('apartamento').readOnly = false;
 }
 
 /**
@@ -361,7 +377,15 @@ function confirmarEliminar(documentId, nombre) {
  */
 function limpiarFormulario() {
     document.getElementById('form-propietario').reset();
-    cancelarEdicion();
+    // Restaurar al modo inicial después de guardar
+    modoEdicion = false;
+    documentoIdActual = null;
+    document.getElementById('form-titulo').textContent = 'Añadir Nuevo Propietario';
+    document.getElementById('btn-guardar').textContent = 'Guardar';
+    document.getElementById('btn-cancelar').textContent = 'Cancelar';
+    document.getElementById('btn-cancelar').classList.add('oculto');
+    document.getElementById('cedula').readOnly = false;
+    document.getElementById('apartamento').readOnly = false;
 }
 
 /**
