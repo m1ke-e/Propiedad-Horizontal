@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard - Propiedad Horizontal</title>
+    <link rel="stylesheet" href="css/styles.css">
+    <link rel="stylesheet" href="css/dashboard.css">
+</head>
+<body>
+    <div class="dashboard-container">
+        <header class="dashboard-header">
+            <h1>Gestión de Propiedad Horizontal</h1>
+            <button id="btn-logout" class="btn btn-secondary">Cerrar Sesión</button>
+        </header>
+        
+        <div class="dashboard-content">
+            <h2 class="dashboard-title">Menú Principal</h2>
+            <p class="dashboard-subtitle">Selecciona una opción para continuar</p>
+            
+            <div class="dashboard-grid">
+                <div class="dashboard-card">
+                    <div class="card-icon">💰</div>
+                    <h3>Facturación</h3>
+                    <p>Gestión de facturas y pagos</p>
+                    <button class="btn btn-primary btn-card" onclick="mostrarMensaje('Facturación en desarrollo')">
+                        Acceder
+                    </button>
+                </div>
+                
+                <div class="dashboard-card">
+                    <div class="card-icon">📋</div>
+                    <h3>PQRS</h3>
+                    <p>Peticiones, Quejas, Reclamos y Sugerencias</p>
+                    <button class="btn btn-primary btn-card" onclick="mostrarMensaje('PQRS en desarrollo')">
+                        Acceder
+                    </button>
+                </div>
+                
+                <div class="dashboard-card">
+                    <div class="card-icon">👥</div>
+                    <h3>CRUD</h3>
+                    <p>Administración de Propietarios</p>
+                    <button class="btn btn-primary btn-card" onclick="window.location.href='crud.html'">
+                        Acceder
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div id="mensaje" class="mensaje oculto"></div>
+    
+    <script src="js/auth.js"></script>
+    <script src="js/dashboard.js"></script>
+</body>
+</html>
+
