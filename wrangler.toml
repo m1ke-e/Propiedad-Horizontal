@@ -1,6 +1,0 @@
-name = "propiedad-horizontal"
-compatibility_date = "2025-01-07"
-
-[site]
-bucket = "."
-

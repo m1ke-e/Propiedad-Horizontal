@@ -1,28 +1,37 @@
-// Variables globales
-let modoEdicion = false;
-let documentoIdActual = null;
-let propietariosCache = [];
+/**
+ * APP.JS - CRUD de propietarios (Crear, Leer, Actualizar, Eliminar)
+ * Usa la API REST de Firestore (config.js). La lista se guarda en propietariosCache
+ * para no pedirla otra vez al servidor cuando buscas o editas.
+ */
 
-// Esperar a que el DOM esté cargado
+// ¿Estamos editando un propietario existente o creando uno nuevo?
+var modoEdicion = false;
+// ID del documento en Firestore que estamos editando (solo tiene valor en modo edición)
+var documentoIdActual = null;
+// Copia en memoria de todos los propietarios (para búsqueda y para cargar al editar)
+var propietariosCache = [];
+
+// Cuando el HTML está listo, inicializamos los eventos y cargamos la lista
 document.addEventListener('DOMContentLoaded', function() {
     inicializarApp();
 });
 
-// Inicializar aplicación
+/**
+ * Enlaza los botones y el formulario a sus funciones y carga la lista de propietarios.
+ */
 function inicializarApp() {
-    const formulario = document.getElementById('form-propietario');
-    const btnCancelar = document.getElementById('btn-cancelar');
-    const btnBuscar = document.getElementById('btn-buscar');
-    const btnLimpiar = document.getElementById('btn-limpiar');
-    const inputBusqueda = document.getElementById('busqueda');
+    var formulario = document.getElementById('form-propietario');
+    var btnCancelar = document.getElementById('btn-cancelar');
+    var btnBuscar = document.getElementById('btn-buscar');
+    var btnLimpiar = document.getElementById('btn-limpiar');
+    var inputBusqueda = document.getElementById('busqueda');
 
-    // Event listeners
     formulario.addEventListener('submit', manejarSubmit);
     btnCancelar.addEventListener('click', cancelarEdicion);
     btnBuscar.addEventListener('click', realizarBusqueda);
     btnLimpiar.addEventListener('click', limpiarBusqueda);
-    
-    // Buscar al presionar Enter
+
+    // Al pulsar Enter en el campo de búsqueda, se ejecuta la búsqueda
     inputBusqueda.addEventListener('keypress', function(e) {
         if (e.key === 'Enter') {
             e.preventDefault();
@@ -30,38 +39,33 @@ function inicializarApp() {
         }
     });
 
-    // Cargar propietarios al iniciar
     obtenerPropietarios();
 }
 
-// ==================== FUNCIONES CRUD ====================
+// --- CRUD (operaciones con Firestore) ---
 
 /**
- * CREATE - Crear nuevo propietario
+ * CREATE: Crea un nuevo propietario en Firestore.
+ * @param {Object} datos - Objeto con nombre, cedula, email, celular, apartamento, fechaIngreso
  */
 async function crearPropietario(datos) {
     try {
-        const url = obtenerUrlColeccion();
-        
-        // Convertir datos a formato Firestore
-        const documento = convertirAFirestore(datos);
+        var url = obtenerUrlColeccion();
+        var documento = convertirAFirestore(datos);
 
-        const response = await fetch(url, {
+        var response = await fetch(url, {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
+            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(documento)
         });
 
         if (!response.ok) {
-            const error = await response.json();
-            throw new Error(error.error?.message || 'Error al crear propietario');
+            var errorData = await response.json();
+            throw new Error(errorData.error && errorData.error.message ? errorData.error.message : 'Error al crear propietario');
         }
 
-        const resultado = await response.json();
         mostrarMensaje('Propietario creado exitosamente', 'exito');
-        return resultado;
+        return await response.json();
     } catch (error) {
         console.error('Error al crear propietario:', error);
         mostrarMensaje('Error al crear propietario: ' + error.message, 'error');
@@ -70,35 +74,31 @@ async function crearPropietario(datos) {
 }
 
 /**
- * READ - Obtener todos los propietarios
+ * READ: Obtiene todos los propietarios de Firestore, los guarda en propietariosCache y pinta la tabla.
  */
 async function obtenerPropietarios() {
     try {
-        const url = obtenerUrlColeccion();
-        
-        const response = await fetch(url, {
+        var url = obtenerUrlColeccion();
+        var response = await fetch(url, {
             method: 'GET',
-            headers: {
-                'Content-Type': 'application/json'
-            }
+            headers: { 'Content-Type': 'application/json' }
         });
 
         if (!response.ok) {
-            const error = await response.json();
-            throw new Error(error.error?.message || 'Error al obtener propietarios');
+            var errorData = await response.json();
+            throw new Error(errorData.error && errorData.error.message ? errorData.error.message : 'Error al obtener propietarios');
         }
 
-        const resultado = await response.json();
-        
-        // Convertir respuesta de Firestore a formato simple
+        var resultado = await response.json();
+
         if (resultado.documents) {
-            propietariosCache = resultado.documents.map(doc => convertirDesdeFirestore(doc));
+            propietariosCache = resultado.documents.map(function(doc) { return convertirDesdeFirestore(doc); });
             renderizarTabla(propietariosCache);
         } else {
             propietariosCache = [];
             renderizarTabla([]);
         }
-        
+
         return propietariosCache;
     } catch (error) {
         console.error('Error al obtener propietarios:', error);
@@ -109,53 +109,49 @@ async function obtenerPropietarios() {
 }
 
 /**
- * READ - Buscar propietario por cédula
+ * READ (uno): Busca un propietario por cédula. Primero carga todos y luego filtra.
+ * @param {string} cedula
+ * @returns {Object} El propietario encontrado
  */
 async function obtenerPropietarioPorCedula(cedula) {
-    try {
-        // Primero obtener todos y filtrar por cédula
-        const propietarios = await obtenerPropietarios();
-        const propietario = propietarios.find(p => p.cedula === cedula);
-        
-        if (!propietario) {
-            throw new Error('Propietario no encontrado');
+    var propietarios = await obtenerPropietarios();
+    var propietario = null;
+    for (var i = 0; i < propietarios.length; i++) {
+        if (propietarios[i].cedula === cedula) {
+            propietario = propietarios[i];
+            break;
         }
-        
-        return propietario;
-    } catch (error) {
-        console.error('Error al buscar propietario:', error);
-        throw error;
     }
+    if (!propietario) {
+        throw new Error('Propietario no encontrado');
+    }
+    return propietario;
 }
 
 /**
- * UPDATE - Actualizar propietario existente
+ * UPDATE: Actualiza un documento existente en Firestore.
+ * @param {string} documentId - ID del documento en Firestore
+ * @param {Object} datos - Campos a actualizar (nombre, cedula, email, etc.)
  */
 async function actualizarPropietario(documentId, datos) {
     try {
-        const url = obtenerUrlDocumento(documentId);
-        
-        // Convertir datos a formato Firestore para actualización
-        const camposActualizados = convertirAFirestore(datos, true);
+        var url = obtenerUrlDocumento(documentId);
+        var camposActualizados = convertirAFirestore(datos, true);
 
-        const response = await fetch(url + '?updateMask.fieldPaths=nombre&updateMask.fieldPaths=cedula&updateMask.fieldPaths=email&updateMask.fieldPaths=celular&updateMask.fieldPaths=apartamento&updateMask.fieldPaths=fechaIngreso', {
+        var urlConMask = url + '?updateMask.fieldPaths=nombre&updateMask.fieldPaths=cedula&updateMask.fieldPaths=email&updateMask.fieldPaths=celular&updateMask.fieldPaths=apartamento&updateMask.fieldPaths=fechaIngreso';
+        var response = await fetch(urlConMask, {
             method: 'PATCH',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-                fields: camposActualizados.fields
-            })
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ fields: camposActualizados.fields })
         });
 
         if (!response.ok) {
-            const error = await response.json();
-            throw new Error(error.error?.message || 'Error al actualizar propietario');
+            var errorData = await response.json();
+            throw new Error(errorData.error && errorData.error.message ? errorData.error.message : 'Error al actualizar propietario');
         }
 
-        const resultado = await response.json();
         mostrarMensaje('Propietario actualizado exitosamente', 'exito');
-        return resultado;
+        return await response.json();
     } catch (error) {
         console.error('Error al actualizar propietario:', error);
         mostrarMensaje('Error al actualizar propietario: ' + error.message, 'error');
@@ -164,22 +160,20 @@ async function actualizarPropietario(documentId, datos) {
 }
 
 /**
- * DELETE - Eliminar propietario
+ * DELETE: Elimina un documento de Firestore.
+ * @param {string} documentId - ID del documento a eliminar
  */
 async function eliminarPropietario(documentId) {
     try {
-        const url = obtenerUrlDocumento(documentId);
-
-        const response = await fetch(url, {
+        var url = obtenerUrlDocumento(documentId);
+        var response = await fetch(url, {
             method: 'DELETE',
-            headers: {
-                'Content-Type': 'application/json'
-            }
+            headers: { 'Content-Type': 'application/json' }
         });
 
         if (!response.ok) {
-            const error = await response.json();
-            throw new Error(error.error?.message || 'Error al eliminar propietario');
+            var errorData = await response.json();
+            throw new Error(errorData.error && errorData.error.message ? errorData.error.message : 'Error al eliminar propietario');
         }
 
         mostrarMensaje('Propietario eliminado exitosamente', 'exito');
@@ -191,13 +185,15 @@ async function eliminarPropietario(documentId) {
     }
 }
 
-// ==================== FUNCIONES AUXILIARES ====================
+// --- Conversión de datos (Firestore usa un formato especial) ---
 
 /**
- * Convertir datos simples a formato Firestore
+ * Convierte nuestro objeto simple { nombre, cedula, ... } al formato que pide Firestore.
+ * @param {Object} datos - Objeto con los campos del propietario
+ * @param {boolean} soloCampos - Si es true, devuelve solo { fields: {...} } (para PATCH)
  */
-function convertirAFirestore(datos, soloCampos = false) {
-    const campos = {
+function convertirAFirestore(datos, soloCampos) {
+    var campos = {
         nombre: { stringValue: datos.nombre },
         cedula: { stringValue: datos.cedula },
         email: { stringValue: datos.email },
@@ -209,65 +205,72 @@ function convertirAFirestore(datos, soloCampos = false) {
     if (soloCampos) {
         return { fields: campos };
     }
-
-    return {
-        fields: campos
-    };
+    return { fields: campos };
 }
 
 /**
- * Convertir documento Firestore a formato simple
+ * Convierte un documento que devuelve Firestore a un objeto simple { id, nombre, cedula, ... }.
+ * El ID se saca del campo "name" del documento (ej: "projects/.../documents/propietarios/abc123" -> "abc123").
+ * @param {Object} documento - Documento tal como viene de la API de Firestore
  */
 function convertirDesdeFirestore(documento) {
-    const campos = documento.fields || {};
-    const nombre = documento.name.split('/').pop(); // Extraer ID del documento
-    
+    var campos = documento.fields || {};
+    var partes = documento.name.split('/');
+    var id = partes[partes.length - 1];
+
     return {
-        id: nombre,
-        nombre: campos.nombre?.stringValue || '',
-        cedula: campos.cedula?.stringValue || '',
-        email: campos.email?.stringValue || '',
-        celular: campos.celular?.stringValue || '',
-        apartamento: campos.apartamento?.stringValue || '',
-        fechaIngreso: campos.fechaIngreso?.stringValue || ''
+        id: id,
+        nombre: (campos.nombre && campos.nombre.stringValue) ? campos.nombre.stringValue : '',
+        cedula: (campos.cedula && campos.cedula.stringValue) ? campos.cedula.stringValue : '',
+        email: (campos.email && campos.email.stringValue) ? campos.email.stringValue : '',
+        celular: (campos.celular && campos.celular.stringValue) ? campos.celular.stringValue : '',
+        apartamento: (campos.apartamento && campos.apartamento.stringValue) ? campos.apartamento.stringValue : '',
+        fechaIngreso: (campos.fechaIngreso && campos.fechaIngreso.stringValue) ? campos.fechaIngreso.stringValue : ''
     };
 }
 
+// --- Interfaz (tabla y formulario) ---
+
 /**
- * Renderizar tabla con propietarios
+ * Borra el contenido del tbody y escribe una fila por cada propietario (o un mensaje si no hay ninguno).
+ * @param {Array} propietarios - Lista de objetos propietario a mostrar
  */
 function renderizarTabla(propietarios) {
-    const tbody = document.getElementById('tabla-body');
-    
+    var tbody = document.getElementById('tabla-body');
+
     if (propietarios.length === 0) {
         tbody.innerHTML = '<tr><td colspan="7" class="empty-state">No hay propietarios registrados</td></tr>';
         return;
     }
 
-    tbody.innerHTML = propietarios.map(propietario => `
-        <tr>
-            <td>${escapeHtml(propietario.nombre)}</td>
-            <td>${escapeHtml(propietario.cedula)}</td>
-            <td>${escapeHtml(propietario.email)}</td>
-            <td>${escapeHtml(propietario.celular)}</td>
-            <td>${escapeHtml(propietario.apartamento)}</td>
-            <td>${formatearFecha(propietario.fechaIngreso)}</td>
-            <td class="acciones-cell">
-                <button class="btn btn-edit" onclick="editarPropietario('${propietario.id}', '${escapeHtml(propietario.cedula)}')">Editar</button>
-                <button class="btn btn-danger" onclick="confirmarEliminar('${propietario.id}', '${escapeHtml(propietario.nombre)}')">Eliminar</button>
-            </td>
-        </tr>
-    `).join('');
+    var html = '';
+    for (var i = 0; i < propietarios.length; i++) {
+        var p = propietarios[i];
+        html += '<tr>';
+        html += '<td>' + escapeHtml(p.nombre) + '</td>';
+        html += '<td>' + escapeHtml(p.cedula) + '</td>';
+        html += '<td>' + escapeHtml(p.email) + '</td>';
+        html += '<td>' + escapeHtml(p.celular) + '</td>';
+        html += '<td>' + escapeHtml(p.apartamento) + '</td>';
+        html += '<td>' + formatearFecha(p.fechaIngreso) + '</td>';
+        html += '<td class="acciones-cell">';
+        html += '<button class="btn btn-edit" onclick="editarPropietario(\'' + p.id + '\', \'' + escapeHtml(p.cedula) + '\')">Editar</button> ';
+        html += '<button class="btn btn-danger" onclick="confirmarEliminar(\'' + p.id + '\', \'' + escapeHtml(p.nombre) + '\')">Eliminar</button>';
+        html += '</td></tr>';
+    }
+    tbody.innerHTML = html;
 }
 
 /**
- * Manejar submit del formulario
+ * Se ejecuta al enviar el formulario (Guardar o Actualizar).
+ * Lee los valores del formulario, valida y llama a crearPropietario o actualizarPropietario.
+ * @param {Event} e - Evento submit del formulario
  */
 async function manejarSubmit(e) {
     e.preventDefault();
-    
-    const formData = new FormData(e.target);
-    const datos = {
+
+    var formData = new FormData(e.target);
+    var datos = {
         nombre: formData.get('nombre').trim(),
         cedula: formData.get('cedula').trim(),
         email: formData.get('email').trim(),
@@ -276,42 +279,42 @@ async function manejarSubmit(e) {
         fechaIngreso: formData.get('fecha-ingreso')
     };
 
-    // Validación básica
     if (!validarDatos(datos)) {
         return;
     }
 
     try {
         if (modoEdicion) {
-            // Actualizar
             await actualizarPropietario(documentoIdActual, datos);
         } else {
-            // Crear
             await crearPropietario(datos);
         }
-        
-        // Limpiar formulario y recargar tabla
         limpiarFormulario();
         await obtenerPropietarios();
-    } catch (error) {
-        // El error ya se muestra en las funciones CRUD
+    } catch (err) {
+        // El mensaje de error ya se mostró en crear/actualizar
     }
 }
 
 /**
- * Editar propietario
+ * Carga los datos de un propietario en el formulario y pone la página en "modo edición".
+ * Así el usuario puede modificar y al guardar se hace PATCH en vez de POST.
+ * @param {string} documentId - ID del documento en Firestore
+ * @param {string} cedula - Cédula (por si hay que cargar el propietario desde el servidor)
  */
 async function editarPropietario(documentId, cedula) {
     try {
-        // Buscar en cache primero
-        let propietario = propietariosCache.find(p => p.id === documentId);
-        
+        var propietario = null;
+        for (var i = 0; i < propietariosCache.length; i++) {
+            if (propietariosCache[i].id === documentId) {
+                propietario = propietariosCache[i];
+                break;
+            }
+        }
         if (!propietario) {
-            // Si no está en cache, obtenerlo
             propietario = await obtenerPropietarioPorCedula(cedula);
         }
 
-        // Cargar datos en formulario
         document.getElementById('nombre').value = propietario.nombre;
         document.getElementById('cedula').value = propietario.cedula;
         document.getElementById('email').value = propietario.email;
@@ -319,17 +322,15 @@ async function editarPropietario(documentId, cedula) {
         document.getElementById('apartamento').value = propietario.apartamento;
         document.getElementById('fecha-ingreso').value = propietario.fechaIngreso;
 
-        // Cambiar a modo edición
         modoEdicion = true;
         documentoIdActual = documentId;
         document.getElementById('form-titulo').textContent = 'Editar Propietario';
         document.getElementById('btn-guardar').textContent = 'Actualizar Propietario';
         document.getElementById('btn-cancelar').textContent = 'Cancelar Edición';
         document.getElementById('btn-cancelar').classList.remove('oculto');
-        document.getElementById('cedula').readOnly = true; // No permitir cambiar cédula
-        document.getElementById('apartamento').readOnly = true; // No permitir cambiar apartamento
+        document.getElementById('cedula').readOnly = true;
+        document.getElementById('apartamento').readOnly = true;
 
-        // Scroll al formulario
         document.querySelector('.form-section').scrollIntoView({ behavior: 'smooth' });
     } catch (error) {
         mostrarMensaje('Error al cargar datos del propietario: ' + error.message, 'error');
@@ -337,47 +338,38 @@ async function editarPropietario(documentId, cedula) {
 }
 
 /**
- * Cancelar edición
+ * Sale del modo edición: limpia el formulario, restaura títulos y botones y quita readonly de cédula y apartamento.
  */
 function cancelarEdicion() {
     modoEdicion = false;
     documentoIdActual = null;
-    
-    // Limpiar formulario (resetear todos los campos)
     document.getElementById('form-propietario').reset();
-    
-    // Restaurar título al modo inicial
     document.getElementById('form-titulo').textContent = 'Añadir Nuevo Propietario';
-    
-    // Restaurar textos de botones
     document.getElementById('btn-guardar').textContent = 'Guardar';
     document.getElementById('btn-cancelar').textContent = 'Cancelar';
-    
-    // Ocultar botón cancelar
     document.getElementById('btn-cancelar').classList.add('oculto');
-    
-    // Volver a habilitar todos los campos
     document.getElementById('cedula').readOnly = false;
     document.getElementById('apartamento').readOnly = false;
 }
 
 /**
- * Confirmar eliminación
+ * Pide confirmación y, si el usuario acepta, elimina el propietario y vuelve a cargar la tabla.
+ * @param {string} documentId - ID del documento a eliminar
+ * @param {string} nombre - Nombre del propietario (para mostrar en el mensaje de confirmación)
  */
 function confirmarEliminar(documentId, nombre) {
-    if (confirm(`¿Estás seguro de que deseas eliminar a ${nombre}?`)) {
-        eliminarPropietario(documentId).then(() => {
+    if (confirm('¿Estás seguro de que deseas eliminar a ' + nombre + '?')) {
+        eliminarPropietario(documentId).then(function() {
             obtenerPropietarios();
         });
     }
 }
 
 /**
- * Limpiar formulario
+ * Limpia el formulario y deja la app en modo "crear nuevo" (no edición).
  */
 function limpiarFormulario() {
     document.getElementById('form-propietario').reset();
-    // Restaurar al modo inicial después de guardar
     modoEdicion = false;
     documentoIdActual = null;
     document.getElementById('form-titulo').textContent = 'Añadir Nuevo Propietario';
@@ -389,133 +381,129 @@ function limpiarFormulario() {
 }
 
 /**
- * Mostrar mensaje al usuario
+ * Muestra un mensaje en el div #mensaje y lo oculta a los 5 segundos.
+ * @param {string} texto
+ * @param {string} tipo - 'exito', 'error' o 'info' (cambia la clase CSS)
  */
-function mostrarMensaje(texto, tipo = 'info') {
-    const mensajeDiv = document.getElementById('mensaje');
+function mostrarMensaje(texto, tipo) {
+    tipo = tipo || 'info';
+    var mensajeDiv = document.getElementById('mensaje');
     mensajeDiv.textContent = texto;
-    mensajeDiv.className = `mensaje ${tipo}`;
+    mensajeDiv.className = 'mensaje ' + tipo;
     mensajeDiv.classList.remove('oculto');
-
-    // Ocultar después de 5 segundos
-    setTimeout(() => {
+    setTimeout(function() {
         mensajeDiv.classList.add('oculto');
     }, 5000);
 }
 
 /**
- * Validar datos del formulario
+ * Comprueba que nombre, cédula, email, celular, apartamento y fecha estén bien. Si algo falla, muestra mensaje y devuelve false.
+ * @param {Object} datos
+ * @returns {boolean}
  */
 function validarDatos(datos) {
     if (!datos.nombre || datos.nombre.length < 3) {
         mostrarMensaje('El nombre debe tener al menos 3 caracteres', 'error');
         return false;
     }
-
     if (!datos.cedula || datos.cedula.length < 5) {
         mostrarMensaje('La cédula debe tener al menos 5 caracteres', 'error');
         return false;
     }
-
     if (!datos.email || !validarEmail(datos.email)) {
         mostrarMensaje('Ingresa un email válido', 'error');
         return false;
     }
-
     if (!datos.celular || datos.celular.length < 7) {
         mostrarMensaje('Ingresa un número de celular válido', 'error');
         return false;
     }
-
     if (!datos.apartamento || datos.apartamento.length < 1) {
         mostrarMensaje('Ingresa un número de apartamento', 'error');
         return false;
     }
-
     if (!datos.fechaIngreso) {
         mostrarMensaje('Selecciona una fecha de ingreso', 'error');
         return false;
     }
-
     return true;
 }
 
 /**
- * Validar formato de email
+ * Comprueba si una cadena tiene formato de email (algo@algo.algo).
+ * @param {string} email
+ * @returns {boolean}
  */
 function validarEmail(email) {
-    const regex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    var regex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     return regex.test(email);
 }
 
 /**
- * Formatear fecha para mostrar
+ * Convierte una fecha en formato ISO (ej. 2024-01-15) a formato legible en español (ej. 15/01/2024).
+ * @param {string} fecha
+ * @returns {string}
  */
 function formatearFecha(fecha) {
     if (!fecha) return '-';
     try {
-        const fechaObj = new Date(fecha);
-        return fechaObj.toLocaleDateString('es-ES', {
-            year: 'numeric',
-            month: '2-digit',
-            day: '2-digit'
-        });
+        var fechaObj = new Date(fecha);
+        return fechaObj.toLocaleDateString('es-ES', { year: 'numeric', month: '2-digit', day: '2-digit' });
     } catch (e) {
         return fecha;
     }
 }
 
 /**
- * Escapar HTML para prevenir XSS
+ * Escapa caracteres especiales del texto para que no se interprete como HTML (evita problemas de seguridad XSS).
+ * @param {string} text
+ * @returns {string}
  */
 function escapeHtml(text) {
-    const div = document.createElement('div');
+    var div = document.createElement('div');
     div.textContent = text;
     return div.innerHTML;
 }
 
 /**
- * Realizar búsqueda por cédula o apartamento
+ * Filtra propietariosCache por cédula o número de apartamento (según lo que escribió el usuario) y pinta solo esos en la tabla.
+ * Muestra el botón "Limpiar" para volver a ver todos.
  */
 function realizarBusqueda() {
-    const terminoBusqueda = document.getElementById('busqueda').value.trim().toLowerCase();
-    const btnLimpiar = document.getElementById('btn-limpiar');
+    var terminoBusqueda = document.getElementById('busqueda').value.trim().toLowerCase();
+    var btnLimpiar = document.getElementById('btn-limpiar');
 
     if (!terminoBusqueda) {
         mostrarMensaje('Ingresa un término de búsqueda', 'info');
         return;
     }
 
-    // Filtrar propietarios del cache
-    const resultados = propietariosCache.filter(propietario => {
-        const cedula = propietario.cedula.toLowerCase();
-        const apartamento = propietario.apartamento.toLowerCase();
-        
-        return cedula.includes(terminoBusqueda) || apartamento.includes(terminoBusqueda);
-    });
+    var resultados = [];
+    for (var i = 0; i < propietariosCache.length; i++) {
+        var p = propietariosCache[i];
+        if (p.cedula.toLowerCase().indexOf(terminoBusqueda) !== -1 || p.apartamento.toLowerCase().indexOf(terminoBusqueda) !== -1) {
+            resultados.push(p);
+        }
+    }
 
     if (resultados.length === 0) {
         mostrarMensaje('No se encontraron propietarios con ese criterio de búsqueda', 'info');
         renderizarTabla([]);
     } else {
-        mostrarMensaje(`Se encontraron ${resultados.length} propietario(s)`, 'exito');
+        mostrarMensaje('Se encontraron ' + resultados.length + ' propietario(s)', 'exito');
         renderizarTabla(resultados);
     }
-
-    // Mostrar botón limpiar
     btnLimpiar.classList.remove('oculto');
 }
 
 /**
- * Limpiar búsqueda y mostrar todos los propietarios
+ * Vacía el campo de búsqueda, oculta el botón Limpiar y vuelve a mostrar todos los propietarios en la tabla.
  */
 function limpiarBusqueda() {
     document.getElementById('busqueda').value = '';
     document.getElementById('btn-limpiar').classList.add('oculto');
     renderizarTabla(propietariosCache);
-    
     if (propietariosCache.length === 0) {
         obtenerPropietarios();
     }
 }
-

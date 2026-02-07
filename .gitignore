@@ -1,18 +1,9 @@
-# Archivos del sistema
+# Sistema
 .DS_Store
 Thumbs.db
 
-# Archivos de configuración local
-config.local.js
-
 # Logs
 *.log
-npm-debug.log*
 
-# Carpetas de dependencias (si se agregan en el futuro)
+# Dependencias (si en el futuro usas npm)
 node_modules/
-
-# Archivos temporales
-*.tmp
-*.temp
-
