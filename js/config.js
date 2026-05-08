@@ -1,33 +1,21 @@
 /**
- * CONFIG.JS - Configuración de Firebase Firestore
- * Aquí guardamos los datos necesarios para conectar con la base de datos.
+ * CONFIG.JS - Configuración de Supabase
+ * Aquí guardamos los datos necesarios para conectar con la API de Supabase.
  */
 
-// Datos del proyecto en Firebase (los ves en la consola de Firebase)
-const FIREBASE_CONFIG = {
-    PROJECT_ID: 'propiedad-horizontal-f6b13',
-    DATABASE_ID: '(default)'
-};
+import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm';
 
-// URL base de la API REST de Firestore (así hablamos con la base de datos desde el navegador)
-const FIREBASE_API_BASE = `https://firestore.googleapis.com/v1/projects/${FIREBASE_CONFIG.PROJECT_ID}/databases/${FIREBASE_CONFIG.DATABASE_ID}/documents`;
+// URL de tu proyecto Supabase
+const SUPABASE_URL = 'https://ibmavkbhyqobkinntpsy.supabase.co';
 
-// Nombre de la colección donde guardamos los propietarios (como una "tabla")
-const COLECCION_PROPIETARIOS = 'propietarios';
+// Clave anónima (anon key) desde la configuración de Supabase
+const SUPABASE_ANON_KEY = 'sb_publishable_vDg4rg2KEkcVby5RFkCLTQ_x64iiXdB';
 
-/**
- * Devuelve la URL para pedir TODOS los documentos de la colección propietarios.
- * Se usa para: crear uno nuevo (POST) y listar todos (GET).
- */
-function obtenerUrlColeccion() {
-    return `${FIREBASE_API_BASE}/${COLECCION_PROPIETARIOS}`;
-}
+// Nombre de la tabla donde guardamos los usuarios
+const SUPABASE_TABLE = 'Usuarios';
 
-/**
- * Devuelve la URL de UN documento concreto (por su ID).
- * Se usa para: actualizar (PATCH) y eliminar (DELETE).
- * @param {string} documentId - El ID del documento en Firestore
- */
-function obtenerUrlDocumento(documentId) {
-    return `${FIREBASE_API_BASE}/${COLECCION_PROPIETARIOS}/${documentId}`;
-}
+// Crear el cliente de Supabase
+export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+// Exportar la tabla para referencia
+export { SUPABASE_TABLE };

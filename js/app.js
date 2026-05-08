@@ -1,15 +1,18 @@
 /**
- * APP.JS - CRUD de propietarios (Crear, Leer, Actualizar, Eliminar)
- * Usa la API REST de Firestore (config.js). La lista se guarda en propietariosCache
+ * APP.JS - CRUD de usuarios (Crear, Leer, Actualizar, Eliminar)
+ * Usa el SDK de Supabase. La lista se guarda en usuariosCache
  * para no pedirla otra vez al servidor cuando buscas o editas.
+ * Integra Supabase Auth para el registro de propietarios.
  */
 
-// ¿Estamos editando un propietario existente o creando uno nuevo?
+import { supabase, SUPABASE_TABLE } from './config.js';
+
+// ¿Estamos editando un usuario existente o creando uno nuevo?
 var modoEdicion = false;
-// ID del documento en Firestore que estamos editando (solo tiene valor en modo edición)
+// ID del registro en Supabase que estamos editando (solo tiene valor en modo edición)
 var documentoIdActual = null;
-// Copia en memoria de todos los propietarios (para búsqueda y para cargar al editar)
-var propietariosCache = [];
+// Copia en memoria de todos los usuarios (para búsqueda y para cargar al editar)
+var usuariosCache = [];
 
 // Cuando el HTML está listo, inicializamos los eventos y cargamos la lista
 document.addEventListener('DOMContentLoaded', function() {
@@ -42,220 +45,207 @@ function inicializarApp() {
     obtenerPropietarios();
 }
 
-// --- CRUD (operaciones con Firestore) ---
+/**
+ * Genera un UUID para el campo USU_CODIGO si no lo crea la base de datos.
+ * @returns {string}
+ */
+function generarUUID() {
+    if (window.crypto && crypto.randomUUID) {
+        return crypto.randomUUID();
+    }
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+        var r = Math.random() * 16 | 0;
+        var v = c === 'x' ? r : (r & 0x3 | 0x8);
+        return v.toString(16);
+    });
+}
+
+// --- CRUD (operaciones con Supabase) ---
 
 /**
- * CREATE: Crea un nuevo propietario en Firestore.
- * @param {Object} datos - Objeto con nombre, cedula, email, celular, apartamento, fechaIngreso
+ * CREATE: Crea un nuevo usuario en Supabase Auth y su perfil en la tabla Usuarios.
+ * @param {Object} datos - Objeto con campos según la tabla Usuarios
+ * @param {string} password - Contraseña para el usuario Auth
  */
-async function crearPropietario(datos) {
+async function crearPropietario(datos, password) {
     try {
-        var url = obtenerUrlColeccion();
-        var documento = convertirAFirestore(datos);
+        console.log('Iniciando creación de propietario');
 
-        var response = await fetch(url, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(documento)
+        // 1. Crear el usuario en Supabase Auth
+        const { data: authData, error: authError } = await supabase.auth.signUp({
+            email: datos.CORREO,
+            password: password
         });
 
-        if (!response.ok) {
-            var errorData = await response.json();
-            throw new Error(errorData.error && errorData.error.message ? errorData.error.message : 'Error al crear propietario');
+        if (authError) {
+            console.error('Error al crear usuario en Auth:', authError);
+            throw new Error(authError.message || 'Error al crear usuario en autenticación');
         }
 
-        mostrarMensaje('Propietario creado exitosamente', 'exito');
-        return await response.json();
+        console.log('Usuario Auth creado:', authData.user.id);
+
+        // 2. Crear el perfil en la tabla Usuarios
+        const datosConAuth = {
+            ...datos,
+            AUTH_ID: authData.user.id,
+            TIPO_USUARIO: 0  // 0 = propietario, 1 = admin
+        };
+
+        const { data: perfilData, error: perfilError } = await supabase
+            .from(SUPABASE_TABLE)
+            .insert([datosConAuth])
+            .select();
+
+        if (perfilError) {
+            console.error('Error al crear perfil:', perfilError);
+            throw new Error(perfilError.message || 'Error al crear perfil de usuario');
+        }
+
+        console.log('Perfil creado:', perfilData);
+        mostrarMensaje('Usuario propietario creado exitosamente', 'exito');
+        return perfilData;
     } catch (error) {
         console.error('Error al crear propietario:', error);
-        mostrarMensaje('Error al crear propietario: ' + error.message, 'error');
+        mostrarMensaje('Error al crear usuario: ' + error.message, 'error');
         throw error;
     }
 }
 
 /**
- * READ: Obtiene todos los propietarios de Firestore, los guarda en propietariosCache y pinta la tabla.
+ * READ: Obtiene todos los usuarios de Supabase, los guarda en usuariosCache y pinta la tabla.
  */
 async function obtenerPropietarios() {
     try {
-        var url = obtenerUrlColeccion();
-        var response = await fetch(url, {
-            method: 'GET',
-            headers: { 'Content-Type': 'application/json' }
-        });
+        console.log('Fetching all users');
+        
+        const { data: usuarios, error } = await supabase
+            .from(SUPABASE_TABLE)
+            .select('*');
 
-        if (!response.ok) {
-            var errorData = await response.json();
-            throw new Error(errorData.error && errorData.error.message ? errorData.error.message : 'Error al obtener propietarios');
+        if (error) {
+            console.error('Select error:', error);
+            throw new Error(error.message || 'Error al obtener usuarios');
         }
 
-        var resultado = await response.json();
-
-        if (resultado.documents) {
-            propietariosCache = resultado.documents.map(function(doc) { return convertirDesdeFirestore(doc); });
-            renderizarTabla(propietariosCache);
-        } else {
-            propietariosCache = [];
-            renderizarTabla([]);
-        }
-
-        return propietariosCache;
+        console.log('Fetched users:', usuarios);
+        usuariosCache = usuarios || [];
+        renderizarTabla(usuariosCache);
+        return usuariosCache;
     } catch (error) {
-        console.error('Error al obtener propietarios:', error);
-        mostrarMensaje('Error al cargar propietarios: ' + error.message, 'error');
+        console.error('Error al obtener usuarios:', error);
+        mostrarMensaje('Error al cargar usuarios: ' + error.message, 'error');
         renderizarTabla([]);
         return [];
     }
 }
 
 /**
- * READ (uno): Busca un propietario por cédula. Primero carga todos y luego filtra.
+ * READ (uno): Busca un usuario por cédula. Primero carga todos y luego filtra.
  * @param {string} cedula
- * @returns {Object} El propietario encontrado
+ * @returns {Object} El usuario encontrado
  */
 async function obtenerPropietarioPorCedula(cedula) {
-    var propietarios = await obtenerPropietarios();
-    var propietario = null;
-    for (var i = 0; i < propietarios.length; i++) {
-        if (propietarios[i].cedula === cedula) {
-            propietario = propietarios[i];
+    var usuarios = await obtenerPropietarios();
+    var usuario = null;
+    var cedulaNum = parseInt(cedula);
+    for (var i = 0; i < usuarios.length; i++) {
+        if (usuarios[i].CEDULA === cedulaNum) {
+            usuario = usuarios[i];
             break;
         }
     }
-    if (!propietario) {
-        throw new Error('Propietario no encontrado');
+    if (!usuario) {
+        throw new Error('Usuario no encontrado');
     }
-    return propietario;
+    return usuario;
 }
 
 /**
- * UPDATE: Actualiza un documento existente en Firestore.
- * @param {string} documentId - ID del documento en Firestore
- * @param {Object} datos - Campos a actualizar (nombre, cedula, email, etc.)
+ * UPDATE: Actualiza un registro existente en Supabase.
+ * @param {string} documentId - ID del registro en Supabase
+ * @param {Object} datos - Campos a actualizar
  */
 async function actualizarPropietario(documentId, datos) {
     try {
-        var url = obtenerUrlDocumento(documentId);
-        var camposActualizados = convertirAFirestore(datos, true);
+        console.log('Updating user:', documentId, datos);
+        
+        const { data, error } = await supabase
+            .from(SUPABASE_TABLE)
+            .update(datos)
+            .eq('USU_CODIGO', documentId)
+            .select();
 
-        var urlConMask = url + '?updateMask.fieldPaths=nombre&updateMask.fieldPaths=cedula&updateMask.fieldPaths=email&updateMask.fieldPaths=celular&updateMask.fieldPaths=apartamento&updateMask.fieldPaths=fechaIngreso';
-        var response = await fetch(urlConMask, {
-            method: 'PATCH',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ fields: camposActualizados.fields })
-        });
-
-        if (!response.ok) {
-            var errorData = await response.json();
-            throw new Error(errorData.error && errorData.error.message ? errorData.error.message : 'Error al actualizar propietario');
+        if (error) {
+            console.error('Update error:', error);
+            throw new Error(error.message || 'Error al actualizar usuario');
         }
 
-        mostrarMensaje('Propietario actualizado exitosamente', 'exito');
-        return await response.json();
+        console.log('Updated user:', data);
+        mostrarMensaje('Usuario actualizado exitosamente', 'exito');
+        return data;
     } catch (error) {
-        console.error('Error al actualizar propietario:', error);
-        mostrarMensaje('Error al actualizar propietario: ' + error.message, 'error');
+        console.error('Error al actualizar usuario:', error);
+        mostrarMensaje('Error al actualizar usuario: ' + error.message, 'error');
         throw error;
     }
 }
 
 /**
- * DELETE: Elimina un documento de Firestore.
- * @param {string} documentId - ID del documento a eliminar
+ * DELETE: Elimina un registro de Supabase.
+ * @param {string} documentId - ID del registro a eliminar
  */
 async function eliminarPropietario(documentId) {
     try {
-        var url = obtenerUrlDocumento(documentId);
-        var response = await fetch(url, {
-            method: 'DELETE',
-            headers: { 'Content-Type': 'application/json' }
-        });
+        console.log('Deleting user:', documentId);
+        
+        const { error } = await supabase
+            .from(SUPABASE_TABLE)
+            .delete()
+            .eq('USU_CODIGO', documentId);
 
-        if (!response.ok) {
-            var errorData = await response.json();
-            throw new Error(errorData.error && errorData.error.message ? errorData.error.message : 'Error al eliminar propietario');
+        if (error) {
+            console.error('Delete error:', error);
+            throw new Error(error.message || 'Error al eliminar usuario');
         }
 
-        mostrarMensaje('Propietario eliminado exitosamente', 'exito');
+        console.log('Deleted user successfully');
+        mostrarMensaje('Usuario eliminado exitosamente', 'exito');
         return true;
     } catch (error) {
-        console.error('Error al eliminar propietario:', error);
-        mostrarMensaje('Error al eliminar propietario: ' + error.message, 'error');
+        console.error('Error al eliminar usuario:', error);
+        mostrarMensaje('Error al eliminar usuario: ' + error.message, 'error');
         throw error;
     }
-}
-
-// --- Conversión de datos (Firestore usa un formato especial) ---
-
-/**
- * Convierte nuestro objeto simple { nombre, cedula, ... } al formato que pide Firestore.
- * @param {Object} datos - Objeto con los campos del propietario
- * @param {boolean} soloCampos - Si es true, devuelve solo { fields: {...} } (para PATCH)
- */
-function convertirAFirestore(datos, soloCampos) {
-    var campos = {
-        nombre: { stringValue: datos.nombre },
-        cedula: { stringValue: datos.cedula },
-        email: { stringValue: datos.email },
-        celular: { stringValue: datos.celular },
-        apartamento: { stringValue: datos.apartamento },
-        fechaIngreso: { stringValue: datos.fechaIngreso }
-    };
-
-    if (soloCampos) {
-        return { fields: campos };
-    }
-    return { fields: campos };
-}
-
-/**
- * Convierte un documento que devuelve Firestore a un objeto simple { id, nombre, cedula, ... }.
- * El ID se saca del campo "name" del documento (ej: "projects/.../documents/propietarios/abc123" -> "abc123").
- * @param {Object} documento - Documento tal como viene de la API de Firestore
- */
-function convertirDesdeFirestore(documento) {
-    var campos = documento.fields || {};
-    var partes = documento.name.split('/');
-    var id = partes[partes.length - 1];
-
-    return {
-        id: id,
-        nombre: (campos.nombre && campos.nombre.stringValue) ? campos.nombre.stringValue : '',
-        cedula: (campos.cedula && campos.cedula.stringValue) ? campos.cedula.stringValue : '',
-        email: (campos.email && campos.email.stringValue) ? campos.email.stringValue : '',
-        celular: (campos.celular && campos.celular.stringValue) ? campos.celular.stringValue : '',
-        apartamento: (campos.apartamento && campos.apartamento.stringValue) ? campos.apartamento.stringValue : '',
-        fechaIngreso: (campos.fechaIngreso && campos.fechaIngreso.stringValue) ? campos.fechaIngreso.stringValue : ''
-    };
 }
 
 // --- Interfaz (tabla y formulario) ---
 
 /**
- * Borra el contenido del tbody y escribe una fila por cada propietario (o un mensaje si no hay ninguno).
- * @param {Array} propietarios - Lista de objetos propietario a mostrar
+ * Borra el contenido del tbody y escribe una fila por cada usuario (o un mensaje si no hay ninguno).
+ * @param {Array} usuarios - Lista de objetos usuario a mostrar
  */
-function renderizarTabla(propietarios) {
+function renderizarTabla(usuarios) {
     var tbody = document.getElementById('tabla-body');
 
-    if (propietarios.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="7" class="empty-state">No hay propietarios registrados</td></tr>';
+    if (usuarios.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="8" class="empty-state">No hay usuarios registrados</td></tr>';
         return;
     }
 
     var html = '';
-    for (var i = 0; i < propietarios.length; i++) {
-        var p = propietarios[i];
+    for (var i = 0; i < usuarios.length; i++) {
+        var p = usuarios[i];
         html += '<tr>';
-        html += '<td>' + escapeHtml(p.nombre) + '</td>';
-        html += '<td>' + escapeHtml(p.cedula) + '</td>';
-        html += '<td>' + escapeHtml(p.email) + '</td>';
-        html += '<td>' + escapeHtml(p.celular) + '</td>';
-        html += '<td>' + escapeHtml(p.apartamento) + '</td>';
-        html += '<td>' + formatearFecha(p.fechaIngreso) + '</td>';
-        html += '<td class="acciones-cell">';
-        html += '<button class="btn btn-edit" onclick="editarPropietario(\'' + p.id + '\', \'' + escapeHtml(p.cedula) + '\')">Editar</button> ';
-        html += '<button class="btn btn-danger" onclick="confirmarEliminar(\'' + p.id + '\', \'' + escapeHtml(p.nombre) + '\')">Eliminar</button>';
+        html += '<td>' + escapeHtml(p.NOMBRE || '') + '</td>';
+        html += '<td>' + escapeHtml(p.CEDULA || '') + '</td>';
+        html += '<td>' + (p.ESTADO === 1 ? 'Activo' : 'Inactivo') + '</td>';
+        html += '<td>' + escapeHtml(p.CELULAR || '') + '</td>';
+        html += '<td>' + escapeHtml(p.CORREO || '') + '</td>';
+        html += '<td>' + formatearFecha(p.FECHA_CREACION) + '</td>';
+        html += '<td>' + formatearFecha(p.FECHA_MODIFICACION) + '</td>';
+        html += '<td class="acciones-cell d-flex gap-2 justify-content-center flex-wrap">';
+        html += '<button class="btn btn-outline-primary btn-sm" onclick="editarPropietario(\'' + p.USU_CODIGO + '\', \'' + escapeHtml(String(p.CEDULA || '')) + '\')">Editar</button> ';
+        html += '<button class="btn btn-outline-danger btn-sm" onclick="confirmarEliminar(\'' + p.USU_CODIGO + '\', \'' + escapeHtml(p.NOMBRE || '') + '\')">Eliminar</button>';
         html += '</td></tr>';
     }
     tbody.innerHTML = html;
@@ -271,15 +261,20 @@ async function manejarSubmit(e) {
 
     var formData = new FormData(e.target);
     var datos = {
-        nombre: formData.get('nombre').trim(),
-        cedula: formData.get('cedula').trim(),
-        email: formData.get('email').trim(),
-        celular: formData.get('celular').trim(),
-        apartamento: formData.get('apartamento').trim(),
-        fechaIngreso: formData.get('fecha-ingreso')
+        CEDULA: parseInt(formData.get('cedula')) || 0,
+        NOMBRE: formData.get('nombre').trim(),
+        CORREO: formData.get('correo').trim(),
+        CELULAR: parseInt(formData.get('celular')) || 0,
+        ESTADO: formData.get('estado') === 'Activo' ? 1 : 0
     };
+    
+    var password = formData.get('password') ? formData.get('password').trim() : '';
 
-    if (!validarDatos(datos)) {
+    if (!modoEdicion) {
+        datos.USU_CODIGO = generarUUID();
+    }
+
+    if (!validarDatos(datos, !modoEdicion)) {
         return;
     }
 
@@ -287,7 +282,12 @@ async function manejarSubmit(e) {
         if (modoEdicion) {
             await actualizarPropietario(documentoIdActual, datos);
         } else {
-            await crearPropietario(datos);
+            // En modo crear, se requiere contraseña y se crea usuario en Auth
+            if (!password || password.length < 6) {
+                mostrarMensaje('La contraseña debe tener al menos 6 caracteres', 'error');
+                return;
+            }
+            await crearPropietario(datos, password);
         }
         limpiarFormulario();
         await obtenerPropietarios();
@@ -299,41 +299,43 @@ async function manejarSubmit(e) {
 /**
  * Carga los datos de un propietario en el formulario y pone la página en "modo edición".
  * Así el usuario puede modificar y al guardar se hace PATCH en vez de POST.
- * @param {string} documentId - ID del documento en Firestore
+ * @param {string} documentId - ID del registro en Supabase
  * @param {string} cedula - Cédula (por si hay que cargar el propietario desde el servidor)
  */
 async function editarPropietario(documentId, cedula) {
     try {
-        var propietario = null;
-        for (var i = 0; i < propietariosCache.length; i++) {
-            if (propietariosCache[i].id === documentId) {
-                propietario = propietariosCache[i];
+        var usuario = null;
+        for (var i = 0; i < usuariosCache.length; i++) {
+            if (usuariosCache[i].USU_CODIGO === documentId) {
+                usuario = usuariosCache[i];
                 break;
             }
         }
-        if (!propietario) {
-            propietario = await obtenerPropietarioPorCedula(cedula);
+        if (!usuario) {
+            usuario = await obtenerPropietarioPorCedula(cedula);
         }
 
-        document.getElementById('nombre').value = propietario.nombre;
-        document.getElementById('cedula').value = propietario.cedula;
-        document.getElementById('email').value = propietario.email;
-        document.getElementById('celular').value = propietario.celular;
-        document.getElementById('apartamento').value = propietario.apartamento;
-        document.getElementById('fecha-ingreso').value = propietario.fechaIngreso;
+        document.getElementById('nombre').value = usuario.NOMBRE || '';
+        document.getElementById('cedula').value = usuario.CEDULA || '';
+        document.getElementById('correo').value = usuario.CORREO || '';
+        document.getElementById('celular').value = usuario.CELULAR || '';
+        document.getElementById('estado').value = usuario.ESTADO === 1 ? 'Activo' : 'Inactivo';
+        document.getElementById('password').value = '';
 
         modoEdicion = true;
         documentoIdActual = documentId;
-        document.getElementById('form-titulo').textContent = 'Editar Propietario';
-        document.getElementById('btn-guardar').textContent = 'Actualizar Propietario';
+        document.getElementById('form-titulo').textContent = 'Editar Usuario';
+        document.getElementById('btn-guardar').textContent = 'Actualizar Usuario';
         document.getElementById('btn-cancelar').textContent = 'Cancelar Edición';
         document.getElementById('btn-cancelar').classList.remove('oculto');
         document.getElementById('cedula').readOnly = true;
-        document.getElementById('apartamento').readOnly = true;
+        
+        // En edición, ocultar el campo de contraseña
+        document.getElementById('password-container').style.display = 'none';
 
-        document.querySelector('.form-section').scrollIntoView({ behavior: 'smooth' });
+        document.getElementById('form-propietario').scrollIntoView({ behavior: 'smooth' });
     } catch (error) {
-        mostrarMensaje('Error al cargar datos del propietario: ' + error.message, 'error');
+        mostrarMensaje('Error al cargar datos del usuario: ' + error.message, 'error');
     }
 }
 
@@ -344,18 +346,18 @@ function cancelarEdicion() {
     modoEdicion = false;
     documentoIdActual = null;
     document.getElementById('form-propietario').reset();
-    document.getElementById('form-titulo').textContent = 'Añadir Nuevo Propietario';
+    document.getElementById('form-titulo').textContent = 'Añadir Nuevo Usuario';
     document.getElementById('btn-guardar').textContent = 'Guardar';
     document.getElementById('btn-cancelar').textContent = 'Cancelar';
     document.getElementById('btn-cancelar').classList.add('oculto');
     document.getElementById('cedula').readOnly = false;
-    document.getElementById('apartamento').readOnly = false;
+    document.getElementById('password-container').style.display = 'block';
 }
 
 /**
- * Pide confirmación y, si el usuario acepta, elimina el propietario y vuelve a cargar la tabla.
- * @param {string} documentId - ID del documento a eliminar
- * @param {string} nombre - Nombre del propietario (para mostrar en el mensaje de confirmación)
+ * Pide confirmación y, si el usuario acepta, elimina al usuario y vuelve a cargar la tabla.
+ * @param {string} documentId - ID del usuario a eliminar
+ * @param {string} nombre - Nombre del usuario (para mostrar en el mensaje de confirmación)
  */
 function confirmarEliminar(documentId, nombre) {
     if (confirm('¿Estás seguro de que deseas eliminar a ' + nombre + '?')) {
@@ -372,12 +374,12 @@ function limpiarFormulario() {
     document.getElementById('form-propietario').reset();
     modoEdicion = false;
     documentoIdActual = null;
-    document.getElementById('form-titulo').textContent = 'Añadir Nuevo Propietario';
+    document.getElementById('form-titulo').textContent = 'Añadir Nuevo Usuario';
     document.getElementById('btn-guardar').textContent = 'Guardar';
     document.getElementById('btn-cancelar').textContent = 'Cancelar';
     document.getElementById('btn-cancelar').classList.add('oculto');
     document.getElementById('cedula').readOnly = false;
-    document.getElementById('apartamento').readOnly = false;
+    document.getElementById('password-container').style.display = 'block';
 }
 
 /**
@@ -389,7 +391,21 @@ function mostrarMensaje(texto, tipo) {
     tipo = tipo || 'info';
     var mensajeDiv = document.getElementById('mensaje');
     mensajeDiv.textContent = texto;
-    mensajeDiv.className = 'mensaje ' + tipo;
+    // Map custom classes to Bootstrap alert classes
+    var alertClass = 'alert ';
+    switch(tipo) {
+        case 'exito':
+            alertClass += 'alert-success';
+            break;
+        case 'error':
+            alertClass += 'alert-danger';
+            break;
+        case 'info':
+        default:
+            alertClass += 'alert-info';
+            break;
+    }
+    mensajeDiv.className = alertClass;
     mensajeDiv.classList.remove('oculto');
     setTimeout(function() {
         mensajeDiv.classList.add('oculto');
@@ -397,33 +413,30 @@ function mostrarMensaje(texto, tipo) {
 }
 
 /**
- * Comprueba que nombre, cédula, email, celular, apartamento y fecha estén bien. Si algo falla, muestra mensaje y devuelve false.
+ * Comprueba que nombre, cédula, correo, celular y estado estén bien. Si algo falla, muestra mensaje y devuelve false.
  * @param {Object} datos
+ * @param {boolean} esCreacion - Si es creación (requiere más validaciones)
  * @returns {boolean}
  */
-function validarDatos(datos) {
-    if (!datos.nombre || datos.nombre.length < 3) {
+function validarDatos(datos, esCreacion = false) {
+    if (!datos.NOMBRE || datos.NOMBRE.length < 3) {
         mostrarMensaje('El nombre debe tener al menos 3 caracteres', 'error');
         return false;
     }
-    if (!datos.cedula || datos.cedula.length < 5) {
-        mostrarMensaje('La cédula debe tener al menos 5 caracteres', 'error');
+    if (!datos.CEDULA || datos.CEDULA < 1) {
+        mostrarMensaje('La cédula debe ser un número válido', 'error');
         return false;
     }
-    if (!datos.email || !validarEmail(datos.email)) {
-        mostrarMensaje('Ingresa un email válido', 'error');
+    if (!datos.CORREO || !validarEmail(datos.CORREO)) {
+        mostrarMensaje('Ingresa un correo válido', 'error');
         return false;
     }
-    if (!datos.celular || datos.celular.length < 7) {
+    if (!datos.CELULAR || datos.CELULAR < 1) {
         mostrarMensaje('Ingresa un número de celular válido', 'error');
         return false;
     }
-    if (!datos.apartamento || datos.apartamento.length < 1) {
-        mostrarMensaje('Ingresa un número de apartamento', 'error');
-        return false;
-    }
-    if (!datos.fechaIngreso) {
-        mostrarMensaje('Selecciona una fecha de ingreso', 'error');
+    if (datos.ESTADO === '' || datos.ESTADO === null) {
+        mostrarMensaje('Selecciona un estado', 'error');
         return false;
     }
     return true;
@@ -466,7 +479,7 @@ function escapeHtml(text) {
 }
 
 /**
- * Filtra propietariosCache por cédula o número de apartamento (según lo que escribió el usuario) y pinta solo esos en la tabla.
+ * Filtra usuariosCache por cédula o nombre (según lo que escribió el usuario) y pinta solo esos en la tabla.
  * Muestra el botón "Limpiar" para volver a ver todos.
  */
 function realizarBusqueda() {
@@ -479,31 +492,39 @@ function realizarBusqueda() {
     }
 
     var resultados = [];
-    for (var i = 0; i < propietariosCache.length; i++) {
-        var p = propietariosCache[i];
-        if (p.cedula.toLowerCase().indexOf(terminoBusqueda) !== -1 || p.apartamento.toLowerCase().indexOf(terminoBusqueda) !== -1) {
+    for (var i = 0; i < usuariosCache.length; i++) {
+        var p = usuariosCache[i];
+        // Convertir CEDULA a string para la búsqueda
+        var cedulaStr = String(p.CEDULA || '').toLowerCase();
+        var nombreStr = (p.NOMBRE || '').toLowerCase();
+        
+        if (cedulaStr.indexOf(terminoBusqueda) !== -1 || nombreStr.indexOf(terminoBusqueda) !== -1) {
             resultados.push(p);
         }
     }
 
     if (resultados.length === 0) {
-        mostrarMensaje('No se encontraron propietarios con ese criterio de búsqueda', 'info');
+        mostrarMensaje('No se encontraron usuarios con ese criterio de búsqueda', 'info');
         renderizarTabla([]);
     } else {
-        mostrarMensaje('Se encontraron ' + resultados.length + ' propietario(s)', 'exito');
+        mostrarMensaje('Se encontraron ' + resultados.length + ' usuario(s)', 'exito');
         renderizarTabla(resultados);
     }
     btnLimpiar.classList.remove('oculto');
 }
 
 /**
- * Vacía el campo de búsqueda, oculta el botón Limpiar y vuelve a mostrar todos los propietarios en la tabla.
+ * Vacía el campo de búsqueda, oculta el botón Limpiar y vuelve a mostrar todos los usuarios en la tabla.
  */
 function limpiarBusqueda() {
     document.getElementById('busqueda').value = '';
     document.getElementById('btn-limpiar').classList.add('oculto');
-    renderizarTabla(propietariosCache);
-    if (propietariosCache.length === 0) {
+    renderizarTabla(usuariosCache);
+    if (usuariosCache.length === 0) {
         obtenerPropietarios();
     }
 }
+
+// --- Funciones globales para acceso desde HTML ---
+window.editarPropietario = editarPropietario;
+window.confirmarEliminar = confirmarEliminar;

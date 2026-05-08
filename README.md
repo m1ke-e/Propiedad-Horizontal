@@ -1,7 +1,7 @@
 # Gestión de Propiedad Horizontal
 
 Aplicación web sencilla para gestionar propietarios (CRUD).  
-Login con usuario/contraseña en el navegador, datos en Firebase Firestore.
+Login con usuario/contraseña en el navegador, datos en Supabase.
 
 ## Cómo funciona
 
@@ -10,7 +10,7 @@ Login con usuario/contraseña en el navegador, datos en Firebase Firestore.
 - **dashboard.html**: Menú con enlace a CRUD de propietarios (dashboard.js).
 - **crud.html**: Alta, edición, listado y eliminación de propietarios (config.js + app.js).
 
-La base de datos es Firestore (Firebase). Las URLs se configuran en `js/config.js`.
+La base de datos es Supabase. La configuración de la API se hace en `js/config.js`.
 
 ## Despliegue
 
@@ -18,5 +18,14 @@ Puedes subir la carpeta del proyecto a **Cloudflare Pages** (o cualquier hosting
 
 ## Requisitos
 
-- Proyecto en Firebase con Firestore y una colección `propietarios`.
+- Proyecto en Supabase con una tabla `Usuarios` con columnas:
+  - `USU_CODIGO` UUID (clave primaria)
+  - `CEDULA` VARCHAR
+  - `NOMBRE` VARCHAR
+  - `ESTADO` VARCHAR (Activo/Inactivo)
+  - `CELULAR` VARCHAR
+  - `CORREO` VARCHAR
+  - `FECHA_CREACION` TIMESTAMP
+  - `FECHA_MODIFICACION` TIMESTAMP
 - Usuario de prueba: `admin` / contraseña: `12345` (está en `js/auth.js`).
+- Configurar variables de Supabase en `js/config.js` (`SUPABASE_URL` y `SUPABASE_ANON_KEY`).

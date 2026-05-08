@@ -4,16 +4,20 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Propiedad Horizontal</title>
-    <script src="js/auth.js"></script>
 </head>
 <body>
-    <script>
+    <script type="module">
+        import { estaAutenticado } from './js/auth.js';
+        
         // Redirigir al login si no está autenticado, o al dashboard si lo está
-        if (estaAutenticado()) {
-            window.location.href = 'dashboard.html';
-        } else {
-            window.location.href = 'login.html';
-        }
+        (async function() {
+            const autenticado = await estaAutenticado();
+            if (autenticado) {
+                window.location.href = 'dashboard.html';
+            } else {
+                window.location.href = 'login.html';
+            }
+        })();
     </script>
 </body>
 </html>
