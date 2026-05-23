@@ -1,18 +1,16 @@
 /**
  * DASHBOARD.JS - Lógica del menú principal
- * Al cargar: comprueba que el usuario esté logueado y controla acceso a CRUD por rol.
+ * Al cargar: comprueba que el usuario esté logueado y renderiza el dashboard según rol.
  * El botón "Cerrar Sesión" pregunta confirmación y luego cierra sesión (auth.js).
  */
 
-import { supabase } from './config.js';
-import { verificarAutenticacion, cerrarSesion, esAdmin, obtenerPerfilUsuario } from './auth.js';
+import { verificarAutenticacion, cerrarSesion, esAdmin } from './auth.js';
 
 document.addEventListener('DOMContentLoaded', async function() {
-    // Si no está logueado, lo redirige a login
     await verificarAutenticacion();
 
-    // Controlar visibilidad de CRUD según rol
-    await controlarAccesoCRUD();
+    const admin = await esAdmin();
+    renderDashboard(admin);
 
     const btnLogout = document.getElementById('btn-logout');
     btnLogout.addEventListener('click', function() {
@@ -23,22 +21,76 @@ document.addEventListener('DOMContentLoaded', async function() {
 });
 
 /**
- * Verifica si el usuario es admin y controla la visibilidad del botón CRUD.
+ * Renderiza el dashboard con contenido distinto para administrador y usuario normal.
+ * @param {boolean} admin
  */
-async function controlarAccesoCRUD() {
-    try {
-        const admin = await esAdmin();
-        const btnCRUD = document.querySelector('button[onclick="window.location.href=\'crud.html\'"]');
-        
-        if (btnCRUD) {
-            if (!admin) {
-                // Si no es admin, ocultar el botón CRUD
-                btnCRUD.parentElement.style.display = 'none';
-                console.log('Acceso a CRUD bloqueado para propietario');
-            }
-        }
-    } catch (error) {
-        console.error('Error al controlar acceso CRUD:', error);
+function renderDashboard(admin) {
+    const title = document.getElementById('dashboard-title');
+    const subtitle = document.getElementById('dashboard-subtitle');
+    const grid = document.getElementById('dashboard-grid');
+
+    if (!title || !subtitle || !grid) return;
+
+    if (admin) {
+        title.textContent = 'Perfil Administrador';
+        subtitle.textContent = 'Panel administrativo con acceso completo al sistema.';
+        grid.innerHTML = `
+            <div class="card dashboard-card h-100">
+                <div class="card-body text-center d-flex flex-column">
+                    <div class="card-icon display-1 mb-3">👥</div>
+                    <h3 class="card-title h5">Usuarios</h3>
+                    <p class="card-text text-muted flex-grow-1">Gestiona usuarios, permisos y roles.</p>
+                    <button class="btn btn-primary btn-card w-100" onclick="window.location.href='crud.html'">
+                        Administrar usuarios
+                    </button>
+                </div>
+            </div>
+            <div class="card dashboard-card h-100">
+                <div class="card-body text-center d-flex flex-column">
+                    <div class="card-icon display-1 mb-3">📊</div>
+                    <h3 class="card-title h5">Reportes</h3>
+                    <p class="card-text text-muted flex-grow-1">Revisa métricas, facturas y actividad.</p>
+                    <button class="btn btn-primary btn-card w-100" onclick="mostrarMensaje('Reportes de administrador en desarrollo')">
+                        Ver reportes
+                    </button>
+                </div>
+            </div>
+            <div class="card dashboard-card h-100">
+                <div class="card-body text-center d-flex flex-column">
+                    <div class="card-icon display-1 mb-3">⚙️</div>
+                    <h3 class="card-title h5">Configuración</h3>
+                    <p class="card-text text-muted flex-grow-1">Ajustes del sistema y la comunidad.</p>
+                    <button class="btn btn-primary btn-card w-100" onclick="mostrarMensaje('Configuración en desarrollo')">
+                        Ver configuración
+                    </button>
+                </div>
+            </div>
+        `;
+    } else {
+        title.textContent = 'Menú Principal';
+        subtitle.textContent = 'Selecciona una opción para continuar';
+        grid.innerHTML = `
+            <div class="card dashboard-card h-100">
+                <div class="card-body text-center d-flex flex-column">
+                    <div class="card-icon display-1 mb-3">💰</div>
+                    <h3 class="card-title h5">Facturación</h3>
+                    <p class="card-text text-muted flex-grow-1">Gestión de facturas y pagos.</p>
+                    <button class="btn btn-primary btn-card w-100" onclick="mostrarMensaje('Facturación en desarrollo')">
+                        Acceder
+                    </button>
+                </div>
+            </div>
+            <div class="card dashboard-card h-100">
+                <div class="card-body text-center d-flex flex-column">
+                    <div class="card-icon display-1 mb-3">📋</div>
+                    <h3 class="card-title h5">PQRS</h3>
+                    <p class="card-text text-muted flex-grow-1">Peticiones, Quejas, Reclamos y Sugerencias.</p>
+                    <button class="btn btn-primary btn-card w-100" onclick="mostrarMensaje('PQRS en desarrollo')">
+                        Acceder
+                    </button>
+                </div>
+            </div>
+        `;
     }
 }
 
@@ -48,6 +100,8 @@ async function controlarAccesoCRUD() {
  */
 function mostrarMensaje(texto) {
     const mensajeDiv = document.getElementById('mensaje');
+    if (!mensajeDiv) return;
+
     mensajeDiv.textContent = texto;
     mensajeDiv.className = 'alert alert-info';
     mensajeDiv.classList.remove('oculto');
@@ -56,3 +110,5 @@ function mostrarMensaje(texto) {
         mensajeDiv.classList.add('oculto');
     }, 3000);
 }
+
+window.mostrarMensaje = mostrarMensaje;

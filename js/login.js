@@ -89,6 +89,11 @@ async function realizarLogin(email, password) {
         }
 
         console.log('Login exitoso:', data);
+
+        if (data?.user) {
+            await crearPerfilSiNoExiste(data.user);
+        }
+
         mostrarMensajeLogin('Inicio de sesión exitoso. Redirigiendo...', 'exito');
         
         // Redirigir al dashboard después de 1 segundo
@@ -161,42 +166,117 @@ async function realizarRegistro() {
 
         const { data: authData, error: authError } = await supabase.auth.signUp({
             email,
-            password
+            password,
+            options: {
+                emailRedirectTo: window.location.origin + '/login.html',
+                data: {
+                    NOMBRE: nombre,
+                    CEDULA: cedula,
+                    CORREO: email,
+                    CELULAR: celular
+                }
+            }
         });
 
         if (authError) {
             console.error('Error al crear usuario en Auth:', authError);
+            const mailLimitMessage = interpretarErrorCorreo(authError);
+            if (mailLimitMessage) {
+                mostrarMensajeLogin(mailLimitMessage, 'error', 'registro');
+                return;
+            }
             mostrarMensajeLogin('Error: ' + authError.message, 'error', 'registro');
             return;
         }
 
-        const { data: perfilData, error: perfilError } = await supabase
-            .from('Usuarios')
-            .insert([{ 
-                CEDULA: cedula,
-                NOMBRE: nombre,
-                CORREO: email,
-                CELULAR: celular,
-                ESTADO: 1,
-                TIPO_USUARIO: 0,
-                AUTH_ID: authData.user.id
-            }])
-            .select();
+        const authId = authData?.user?.id;
+        const needsConfirmation = !authData?.session;
 
-        if (perfilError) {
-            console.error('Error al crear perfil:', perfilError);
-            mostrarMensajeLogin('Cuenta creada pero error al guardar perfil: ' + perfilError.message, 'error', 'registro');
+        if (authId && !needsConfirmation) {
+            const { data: perfilData, error: perfilError } = await supabase
+                .from('Usuarios')
+                .insert([{ 
+                    CEDULA: cedula,
+                    NOMBRE: nombre,
+                    CORREO: email,
+                    CELULAR: celular,
+                    ESTADO: 1,
+                    TIPO_USUARIO: 0,
+                    AUTH_ID: authId
+                }])
+                .select();
+
+            if (perfilError) {
+                console.error('Error al crear perfil:', perfilError);
+                mostrarMensajeLogin('Cuenta creada pero error al guardar perfil: ' + perfilError.message, 'error', 'registro');
+                return;
+            }
+
+            console.log('Perfil creado:', perfilData);
+            mostrarMensajeLogin('¡Cuenta creada exitosamente! Iniciando sesión...', 'exito', 'registro');
+            setTimeout(function() {
+                window.location.href = 'dashboard.html';
+            }, 1500);
             return;
         }
 
-        console.log('Perfil creado:', perfilData);
-        mostrarMensajeLogin('¡Cuenta creada exitosamente! Iniciando sesión...', 'exito', 'registro');
+        console.log('Registro completado. Se requiere verificación por email. authData:', authData);
+        mostrarMensajeLogin('Cuenta creada. Revisa tu correo (y carpeta spam) para verificarla y luego inicia sesión. Si no recibes el correo, puede deberse a que se alcanzó el límite de envíos de correo. Intenta de nuevo más tarde.', 'info', 'registro');
         setTimeout(function() {
-            window.location.href = 'dashboard.html';
-        }, 1500);
+            window.location.href = 'login.html';
+        }, 2500);
     } catch (error) {
         console.error('Error inesperado en registro:', error);
         mostrarMensajeLogin('Error: ' + error.message, 'error', 'registro');
+    }
+}
+
+/**
+ * Crea el perfil del usuario si todavía no existe en la tabla Usuarios.
+ * @param {Object} user
+ */
+async function crearPerfilSiNoExiste(user) {
+    if (!user?.id) return;
+
+    const { data: existingPerfil, error: checkError } = await supabase
+        .from('Usuarios')
+        .select('*')
+        .eq('AUTH_ID', user.id)
+        .maybeSingle();
+
+    if (checkError) {
+        console.error('Error al verificar perfil existente:', checkError);
+        return;
+    }
+
+    if (existingPerfil) {
+        return;
+    }
+
+    const metadata = user.user_metadata || {};
+    const { NOMBRE, CEDULA, CORREO, CELULAR } = metadata;
+
+    if (!NOMBRE || !CEDULA || !CORREO || !CELULAR) {
+        console.warn('No hay metadata suficiente para crear el perfil automáticamente. Usuario:', user.id);
+        return;
+    }
+
+    const { error: perfilError } = await supabase
+        .from('Usuarios')
+        .insert([{ 
+            CEDULA: CEDULA,
+            NOMBRE: NOMBRE,
+            CORREO: CORREO,
+            CELULAR: CELULAR,
+            ESTADO: 1,
+            TIPO_USUARIO: 0,
+            AUTH_ID: user.id
+        }]);
+
+    if (perfilError) {
+        console.error('Error al crear perfil automático tras login:', perfilError);
+    } else {
+        console.log('Perfil creado automáticamente tras login');
     }
 }
 
@@ -214,6 +294,11 @@ async function enviarResetPassword(email) {
 
         if (error) {
             console.error('Error al enviar reset:', error);
+            const mailLimitMessage = interpretarErrorCorreo(error);
+            if (mailLimitMessage) {
+                mostrarMensajeLogin(mailLimitMessage, 'error', 'reset');
+                return;
+            }
             mostrarMensajeLogin('Error: ' + error.message, 'error', 'reset');
             return;
         }
@@ -226,6 +311,19 @@ async function enviarResetPassword(email) {
         console.error('Error inesperado en reset:', error);
         mostrarMensajeLogin('Error: ' + error.message, 'error', 'reset');
     }
+}
+
+function interpretarErrorCorreo(error) {
+    if (!error) return null;
+
+    const mensaje = (error.message || '').toString().toLowerCase();
+    const status = error.status || error.statusCode || 0;
+
+    if (status === 429 || mensaje.includes('rate limit') || mensaje.includes('too many requests') || mensaje.includes('too many request') || mensaje.includes('limite') || mensaje.includes('límite') || mensaje.includes('smtp') || mensaje.includes('email limit') || mensaje.includes('mail limit') || mensaje.includes('quota')) {
+        return 'No se pudo enviar el correo porque se alcanzó el límite de envíos. Intenta de nuevo más tarde.';
+    }
+
+    return null;
 }
 
 function mostrarMensajeLogin(texto, tipo, formulario = 'login') {
